@@ -56,7 +56,17 @@ class BudgetBot:
         cmd = parts[0].lower()
         
         try:
-            if cmd == "/balance":
+            if cmd in ["/usage", "/help"]:
+                return (
+                    "📖 *Budget Bot Usage*\n"
+                    "• /balance - Show current balance\n"
+                    "• /add [amount] [reason] - Add funds (e.g., `/add 10.50 birthday`)\n"
+                    "• /sub [amount] [reason] - Withdraw (e.g., `/sub 5 coffee`)\n"
+                    "• /history - Show last 10 transactions\n"
+                    "• /set [amount] - Change weekly allowance\n"
+                    "• /usage - Show this menu"
+                )
+            elif cmd == "/balance":
                 return f"💰 Balance: £{self.state['balance']:.2f}"
             
             elif cmd == "/history":
