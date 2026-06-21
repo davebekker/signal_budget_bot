@@ -11,7 +11,7 @@ load_dotenv()
 
 # --- Configuration ---
 SIGNAL_API_BASE = "http://localhost:8080"
-REGISTERED_NUMBER = os.getenv("SIGNAL_NUMBER")
+SIGNAL_NUMBER = os.getenv("SIGNAL_NUMBER")
 GROUP_ID = os.getenv("RECIPIENT_NUMBER") 
 
 STATE_FILE = "budget_state.json"
@@ -104,7 +104,7 @@ class BudgetBot:
 async def send_signal_message(session, text):
     payload = {
         "message": text,
-        "number": REGISTERED_NUMBER,
+        "number": SIGNAL_NUMBER,
         "recipients": [GROUP_ID]
     }
     try:
@@ -114,37 +114,38 @@ async def send_signal_message(session, text):
     except Exception as e:
         logging.error(f"Send error: {e}")
 
-async def poll_signal_messages(bot):
+async def poll_signal(bot):
     async with aiohttp.ClientSession() as session:
-        logging.info("Sending startup notification...")
-        startup_msg = (f"🚀 Budget Bot is online!\n"
-                       f"💰 Balance: £{bot.state['balance']:.2f}\n"
-                       f"📅 Weekly: £{bot.state['weekly_amount']:.2f}")
-        await send_signal_message(session, startup_msg)
-
         while True:
             try:
-                receive_url = f"{SIGNAL_API_BASE}/v1/receive/{REGISTERED_NUMBER}"
-                async with session.get(receive_url, timeout=10) as resp:
+                receive_url = f"{SIGNAL_API_BASE}/v1/receive/{SIGNAL_NUMBER}"
+                async with session.get(receive_url) as resp:
                     if resp.status == 200:
-                        raw_text = await resp.text()
-                        if raw_text and raw_text.strip() != "null":
-                            messages = json.loads(raw_text)
-                            for msg in messages:
+                        data = await resp.json(content_type=None)
+                        if data and data != "null":
+                            for msg in data:
                                 envelope = msg.get("envelope", {})
                                 
-                                # Check standard dataMessage (from others)
-                                incoming_text = envelope.get("dataMessage", {}).get("message")
-                                
-                                # Check syncMessage (from you)
-                                if not incoming_text:
-                                    sync_msg = envelope.get("syncMessage", {})
-                                    incoming_text = sync_msg.get("sentMessage", {}).get("message")
-                                
-                                if incoming_text and incoming_text.startswith("/"):
-                                    response_text = await bot.handle_command(incoming_text)
-                                    if response_text:
-                                        await send_signal_message(session, response_text)
+                                # 1. Extract the message data
+                                data_msg = envelope.get("dataMessage")
+                                sync_msg = envelope.get("syncMessage", {}).get("sentMessage")
+                                target_msg = data_msg or sync_msg
+
+                                if not target_msg:
+                                    continue
+
+                                # 2. CHECK THE GROUP ID
+                                # This ensures the Budget Bot only listens to the Budget Group
+                                incoming_group = target_msg.get("groupInfo", {}).get("groupId")
+                                print(f"incoming group is: {incoming_group}")
+                                # Only process if the message is from our specific group
+                                if incoming_group == os.getenv("INTERNAL_GROUP_ID") :
+                                    incoming_text = target_msg.get("message")
+                                    
+                                    if incoming_text and incoming_text.startswith("/"):
+                                        reply = await bot.handle_command(incoming_text)
+                                        if reply:
+                                            await send_signal_message(session, reply)
             except Exception as e:
                 logging.error(f"Polling error: {e}")
             await asyncio.sleep(POLL_INTERVAL)
@@ -167,7 +168,7 @@ async def weekly_task(bot):
 async def main():
     bot = BudgetBot()
     await asyncio.gather(
-        poll_signal_messages(bot),
+        poll_signal(bot),
         weekly_task(bot)
     )
 
